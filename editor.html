@@ -11,10 +11,10 @@
 <body><header><small>THOMAS J. McNAMARA</small><h1>Your website editor</h1><div>Choose a section. Make it yours. Preview before publishing.</div></header>
 <main><p>Changes stay in this browser until you download and publish them through GitHub. This page is not password-protected; only someone with access to your GitHub repository can publish.</p>
 <div class="panel"><label for="section">Text to edit</label><select id="section" disabled><option>Loading website…</option></select><textarea id="editor" aria-label="Website text"></textarea>
-<div class="actions"><button id="draft" disabled>Save draft</button><button id="preview" class="secondary" disabled>Preview website</button><button id="download" disabled>Download index.html</button><button id="reset" class="secondary" disabled>Discard draft</button></div>
+<div class="actions"><button id="draft" disabled>Save draft</button><button id="preview" class="secondary" disabled>Preview website</button><button id="download" disabled>Save index.html to computer</button><button id="copy-html" class="secondary" disabled>Copy website HTML</button><button id="reset" class="secondary" disabled>Discard draft</button></div>
 <div id="download-ready" hidden><strong>Your file is ready.</strong> <a id="file-link" download="index.html">Click here to save index.html</a><p class="muted">If nothing appeared in Downloads, click this link. In Chrome, press Ctrl + J to check downloads. Upload this file to GitHub to publish.</p></div><p id="status" role="status" aria-live="polite">Loading the website and editor…</p><p class="muted">Drafts belong to this browser and device. Download a copy before clearing browser data. Images and page layout remain managed in the website files.</p></div>
-<div class="panel" id="preview-panel" hidden><h2>Website preview</h2><iframe id="frame" title="Preview of your edited website" sandbox=""></iframe></div>
-<div class="panel"><h2>Publish your changes</h2><ol><li>Review the preview, then click <strong>Download index.html</strong>.</li><li><a href="https://github.com/sdctom/thomasmcnamara/upload/main" target="_blank" rel="noopener noreferrer">Open GitHub’s upload page</a> and sign in. Upload the downloaded file at the repository root, replacing <strong>index.html</strong>. If your browser renamed it to index (1).html, rename it to index.html first.</li><li>Click <strong>Commit changes</strong>. Wait for GitHub Pages to finish publishing, then <a href="./" target="_blank" rel="noopener noreferrer">check your live website</a>.</li></ol><p>No GitHub passwords or access tokens are stored in this editor.</p>
+<div class="panel" id="manual-save" hidden><label for="html-backup">Complete website HTML — manual backup</label><textarea id="html-backup" readonly spellcheck="false"></textarea><p>Copy all this text into Notepad. Choose File → Save As, name it <strong>index.html</strong>, select <strong>All files</strong> and <strong>UTF-8</strong>. Review before publishing; this backup does not check for newer live changes.</p></div><div class="panel" id="preview-panel" hidden><h2>Website preview</h2><iframe id="frame" title="Preview of your edited website" sandbox=""></iframe></div>
+<div class="panel"><h2>Publish your changes</h2><ol><li>Review the preview, then click <strong>Save index.html to computer</strong> and choose a folder in the Save As dialog.</li><li><a href="https://github.com/sdctom/thomasmcnamara/upload/main" target="_blank" rel="noopener noreferrer">Open GitHub’s upload page</a> and sign in. Upload the downloaded file at the repository root, replacing <strong>index.html</strong>. If your browser renamed it to index (1).html, rename it to index.html first.</li><li>Click <strong>Commit changes</strong>. Wait for GitHub Pages to finish publishing, then <a href="./" target="_blank" rel="noopener noreferrer">check your live website</a>.</li></ol><p>No GitHub passwords or access tokens are stored in this editor.</p>
 <details><summary>Editor setup and help</summary><p>If TinyMCE displays a domain notice, add <strong>thomasmcnamara.me</strong> and <strong>www.thomasmcnamara.me</strong> to <a href="https://www.tiny.cloud/my-account/domains/" target="_blank" rel="noopener noreferrer">your approved Tiny Cloud domains</a>. The Tiny Cloud key is a public browser key. Plain HTML does not load .env files; do not put a GitHub token or private secret here.</p><p><a href="https://www.tiny.cloud/docs/tinymce/latest/cloud-quick-start/">TinyMCE setup</a> · <a href="https://www.tiny.cloud/docs/tinymce/latest/powerpaste/">Pasting from Word</a> · <a href="https://www.tiny.cloud/docs/llms.txt">AI-ready documentation</a></p><p>PowerPaste is enabled for the supplied trial setup. If it stops loading after the trial, the website maintainer can remove powerpaste from this page’s plugin list to use built-in paste.</p></details></div></main>
 <script>
 'use strict';
@@ -68,12 +68,46 @@ async function start(){
  setup:ed=>{ed.on('input change undo redo',()=>{if(!loading&&editor){pending=true;changed=true;$('download-ready').hidden=true;say('Unsaved changes. Save a draft or download when ready.');}});}
  });
  editor=instances[0];if(!editor)throw new Error('Editor initialization failed.');selectText();
- $('section').disabled=false;for(const id of ['draft','preview','download','reset'])$(id).disabled=false;say(notice);
+ $('section').disabled=false;for(const id of ['draft','preview','download','copy-html','reset'])$(id).disabled=false;say(notice);
 }
 $('section').onchange=()=>{saveCurrent();index=Number($('section').value);selectText();};
 $('draft').onclick=storeDraft;
 $('preview').onclick=()=>{const preview=parse(serialize());const base=preview.createElement('base');base.href=new URL('./',location.href).href;preview.head.prepend(base);$('frame').srcdoc='<!doctype html>'+preview.documentElement.outerHTML;$('preview-panel').hidden=false;say('Preview refreshed. These changes have not been published.');};
-$('download').onclick=async()=>{const button=$('download');button.disabled=true;try{say('Preparing your file and checking for newer website changes…');if(await liveSource()!==source){say('The live website has changed since this editing session. Your edits remain here. Save a draft and ask for help merging them before publishing.');return;}const html=serialize();if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));const link=$('file-link');link.href=downloadUrl;$('download-ready').hidden=false;const saved=storeDraft();link.click();say('Your index.html file is ready. Check Downloads (Ctrl + J), or use the highlighted save link above.'+(saved?' Your browser draft is also saved.':' Browser draft storage is unavailable; keep the downloaded file.'));}catch(e){say('Download could not be prepared: '+e.message+'. Your edits are still in the editor. Save a draft, check your connection, and try again.');}finally{button.disabled=false;}};
+$('download').onclick=async()=>{
+ const button=$('download');button.disabled=true;
+ try{
+  // Open the picker before any network await, while the click is active.
+  const picker=typeof window.showSaveFilePicker==='function'
+   ? window.showSaveFilePicker({suggestedName:'index.html',types:[{description:'Website HTML file',accept:{'text/html':['.html']}}]})
+   : null;
+  const handle=picker?await picker:null;
+  const html=serialize();
+  say('Checking the current website before saving…');
+  if(await liveSource()!==source){say('The live website has changed. No website content was written to the selected file. Your edits remain here; save a draft and ask for help merging them.');return;}
+  if(handle){
+   const writer=await handle.createWritable();
+   try{await writer.write(html);await writer.close();}catch(e){try{await writer.abort();}catch{}throw e;}
+   const written=await handle.getFile();
+   if(await written.text()!==html)throw new Error('The saved file could not be verified.');
+   const saved=storeDraft();$('download-ready').hidden=true;
+   say('Saved '+handle.name+' to the folder you selected. File contents verified.'+(saved?' Your browser draft is also saved.':' Browser draft saving was unavailable.')+' Upload the file to GitHub to publish.');
+  }else{
+   if(downloadUrl)URL.revokeObjectURL(downloadUrl);
+   downloadUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+   const link=$('file-link');link.href=downloadUrl;$('download-ready').hidden=false;
+   storeDraft();say('Click the highlighted save link above to download index.html. If your browser blocks it, use Copy website HTML below.');
+  }
+ }catch(e){
+  if(e.name==='AbortError')say('Save cancelled. Your edits are still here.');
+  else say('Chrome could not save the file: '+e.message+' Your edits are still here. Use Copy website HTML below as an alternative.');
+ }finally{button.disabled=false;}
+};
+$('copy-html').onclick=async()=>{
+ try{const html=serialize();$('html-backup').value=html;$('manual-save').hidden=false;
+  try{await navigator.clipboard.writeText(html);say('Website HTML copied. Paste into Notepad and save as index.html, with Save as type set to All files and encoding UTF-8.');}
+  catch{$('html-backup').focus();$('html-backup').select();say('Website HTML is selected below. Press Ctrl + C, paste into Notepad, then save as index.html (All files, UTF-8).');}
+ }catch(e){say('Could not prepare the HTML: '+e.message);}
+};
 
 $('reset').onclick=()=>{if(!confirm('Discard your draft and edits, and reload the current website?'))return;try{localStorage.removeItem(key);}catch{}changed=false;location.reload();};
 window.addEventListener('beforeunload',e=>{if(changed){e.preventDefault();e.returnValue='';}});
