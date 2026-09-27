@@ -8,7 +8,7 @@
 </style>
 <script src="https://cdn.tiny.cloud/1/s8haauqd0qaxwuavueczd1b2i21fvj9bu5ign9u7aqz02yar/tinymce/8/tinymce.min.js" referrerpolicy="origin" crossorigin="anonymous"></script>
 </head>
-<body><header><small>THOMAS J. McNAMARA</small><h1>Your website editor</h1><div>Choose a section. Make it yours. Preview before publishing.</div></header>
+<body><header><small>THOMAS J. McNAMARA</small><h1>Your website editor</h1><div>Choose a section. Make it yours. Preview before publishing. · Editor 1.3</div></header>
 <main><p>Changes stay in this browser until you download and publish them through GitHub. This page is not password-protected; only someone with access to your GitHub repository can publish.</p>
 <div class="panel"><label for="section">Text to edit</label><select id="section" disabled><option>Loading website…</option></select><textarea id="editor" aria-label="Website text"></textarea>
 <div class="actions"><button id="draft" disabled>Save draft</button><button id="preview" class="secondary" disabled>Preview website</button><button id="download" disabled>Save index.html to computer</button><button id="copy-html" class="secondary" disabled>Copy website HTML</button><button id="reset" class="secondary" disabled>Discard draft</button></div>
@@ -76,30 +76,34 @@ $('preview').onclick=()=>{const preview=parse(serialize());const base=preview.cr
 $('download').onclick=async()=>{
  const button=$('download');button.disabled=true;
  try{
-  // Open the picker before any network await, while the click is active.
+  // Prepare and validate a complete local snapshot before creating a file.
+  const html=serialize();
+  if(!doc?.querySelector('main')||!html.includes('</html>'))throw new Error('The website has not loaded completely. No file was created.');
+  const payload=new Blob([html],{type:'text/html;charset=utf-8'});
+  if(payload.size===0)throw new Error('There is no content to save. No file was created.');
+  const expectedBytes=payload.size;
+  // Keep the picker in the click event, without awaiting any network request.
   const picker=typeof window.showSaveFilePicker==='function'
    ? window.showSaveFilePicker({suggestedName:'index.html',types:[{description:'Website HTML file',accept:{'text/html':['.html']}}]})
    : null;
   const handle=picker?await picker:null;
-  const html=serialize();
-  say('Checking the current website before saving…');
-  if(await liveSource()!==source){say('The live website has changed. No website content was written to the selected file. Your edits remain here; save a draft and ask for help merging them.');return;}
+  say('Writing '+expectedBytes.toLocaleString()+' bytes to your file…');
   if(handle){
    const writer=await handle.createWritable();
-   try{await writer.write(html);await writer.close();}catch(e){try{await writer.abort();}catch{}throw e;}
+   try{await writer.write(payload);await writer.close();}catch(e){try{await writer.abort();}catch{}throw e;}
    const written=await handle.getFile();
-   if(await written.text()!==html)throw new Error('The saved file could not be verified.');
+   if(written.size!==expectedBytes||await written.text()!==html)throw new Error('File verification failed: expected '+expectedBytes+' bytes, found '+written.size+'. Use Copy website HTML to preserve your edits.');
    const saved=storeDraft();$('download-ready').hidden=true;
-   say('Saved '+handle.name+' to the folder you selected. File contents verified.'+(saved?' Your browser draft is also saved.':' Browser draft saving was unavailable.')+' Upload the file to GitHub to publish.');
+   say('Saved '+handle.name+' — '+written.size.toLocaleString()+' bytes written and verified in your selected folder.'+(saved?' Your browser draft is also saved.':' Browser draft saving was unavailable.')+' Review this exported snapshot against the current live site before uploading it to GitHub.');
   }else{
    if(downloadUrl)URL.revokeObjectURL(downloadUrl);
    downloadUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
    const link=$('file-link');link.href=downloadUrl;$('download-ready').hidden=false;
-   storeDraft();say('Click the highlighted save link above to download index.html. If your browser blocks it, use Copy website HTML below.');
+   storeDraft();say('Click the highlighted save link above to download index.html ('+expectedBytes.toLocaleString()+' bytes). If your browser blocks it, use Copy website HTML below.');
   }
  }catch(e){
   if(e.name==='AbortError')say('Save cancelled. Your edits are still here.');
-  else say('Chrome could not save the file: '+e.message+' Your edits are still here. Use Copy website HTML below as an alternative.');
+  else say('The file was not successfully saved: '+e.message+' Your edits are still here. Use Copy website HTML below as an alternative.');
  }finally{button.disabled=false;}
 };
 $('copy-html').onclick=async()=>{
